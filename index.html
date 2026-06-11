@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vätternrundan – Väderprognos</title>
+<meta name="description" content="Förutspå vädret längs Vätternrundan utifrån din starttid och snittfart." />
+<style>
+  :root {
+    --bg: #0e1726;
+    --bg-2: #16213a;
+    --card: #1c2942;
+    --line: #2a3a5c;
+    --text: #e8eef7;
+    --muted: #9fb0cc;
+    --accent: #4ea3ff;
+    --accent-2: #38d39f;
+    --warn: #ffb84e;
+    --rain: #6db3ff;
+    --headwind: #ff7a6b;
+    --tailwind: #38d39f;
+    --crosswind: #ffb84e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: radial-gradient(1200px 600px at 70% -10%, #1d3a63 0%, var(--bg) 55%) fixed;
+    color: var(--text);
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 18px 64px; }
+  header h1 {
+    font-size: clamp(1.5rem, 3vw, 2.2rem);
+    margin: 0 0 4px;
+    letter-spacing: -0.02em;
+  }
+  header p { margin: 0 0 24px; color: var(--muted); }
+  .badge {
+    display: inline-block; font-size: .72rem; font-weight: 600;
+    color: var(--accent-2); border: 1px solid var(--accent-2);
+    border-radius: 999px; padding: 2px 10px; margin-bottom: 14px; opacity: .9;
+  }
+  form {
+    display: grid; gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 16px; padding: 20px; margin-bottom: 18px;
+    align-items: end;
+  }
+  .field label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: 6px; }
+  .field input {
+    width: 100%; background: var(--bg-2); border: 1px solid var(--line);
+    color: var(--text); border-radius: 10px; padding: 11px 12px; font-size: 1rem;
+    font-family: inherit;
+  }
+  .field input:focus { outline: none; border-color: var(--accent); }
+  .hint { font-size: .72rem; color: var(--muted); margin-top: 5px; }
+  button {
+    background: linear-gradient(180deg, #5cb0ff, #2f8bf0);
+    color: #fff; border: 0; border-radius: 10px; padding: 12px 18px;
+    font-size: 1rem; font-weight: 600; cursor: pointer; min-height: 46px;
+    transition: filter .15s;
+  }
+  button:hover { filter: brightness(1.08); }
+  button:disabled { opacity: .55; cursor: progress; }
+
+  .summary { color: var(--muted); font-size: .9rem; margin: 4px 2px 16px; }
+  .summary strong { color: var(--text); }
+
+  .table-card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 16px; overflow: hidden;
+  }
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: .92rem; min-width: 720px; }
+  thead th {
+    text-align: left; font-size: .72rem; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--muted); font-weight: 600;
+    padding: 14px 14px; border-bottom: 1px solid var(--line);
+    background: var(--bg-2); position: sticky; top: 0;
+  }
+  tbody td { padding: 13px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr.finish td { background: rgba(56,211,159,.08); }
+  .depo { font-weight: 600; }
+  .dist { color: var(--muted); font-size: .8rem; }
+  .time { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .temp { font-variant-numeric: tabular-nums; }
+  .wind { font-variant-numeric: tabular-nums; }
+  .arrow { display: inline-block; font-size: 1.1rem; transition: transform .2s; }
+  .tag {
+    display: inline-block; font-size: .76rem; font-weight: 600;
+    padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+  }
+  .tag.head { background: rgba(255,122,107,.16); color: var(--headwind); }
+  .tag.tail { background: rgba(56,211,159,.16); color: var(--tailwind); }
+  .tag.cross { background: rgba(255,184,78,.16); color: var(--crosswind); }
+  .precip { white-space: nowrap; }
+  .precip .icon { margin-right: 5px; }
+
+  .msg { padding: 18px; color: var(--muted); }
+  .error { color: var(--headwind); }
+  footer { color: var(--muted); font-size: .78rem; margin-top: 22px; text-align: center; }
+  footer a { color: var(--accent); }
+  @media (max-width: 560px) {
+    form { grid-template-columns: 1fr 1fr; }
+    .full { grid-column: 1 / -1; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="badge">🚴 315 km runt Vättern</span>
+    <h1>Vätternrundan – Väderprognos</h1>
+    <p>Ange din starttid och snittfart, så räknar vi ut vädret depå för depå.</p>
+  </header>
+
+  <form id="form">
+    <div class="field">
+      <label for="date">Startdatum</label>
+      <input type="date" id="date" required />
+    </div>
+    <div class="field">
+      <label for="time">Starttid</label>
+      <input type="time" id="time" value="04:00" required />
+    </div>
+    <div class="field">
+      <label for="speed">Snittfart (km/h)</label>
+      <input type="number" id="speed" value="25" min="10" max="45" step="0.5" required />
+      <div class="hint">Ren cykeltid, exkl. depåstopp</div>
+    </div>
+    <div class="field">
+      <label for="stop">Stopp/depå (min)</label>
+      <input type="number" id="stop" value="0" min="0" max="60" step="1" />
+      <div class="hint">Genomsnittligt stopp per depå</div>
+    </div>
+    <div class="field">
+      <button type="submit" id="go">Hämta prognos</button>
+    </div>
+  </form>
+
+  <div id="summary" class="summary"></div>
+
+  <div class="table-card">
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Depå</th>
+            <th>Tid</th>
+            <th>Temp</th>
+            <th>Vind</th>
+            <th>Riktning du cyklar</th>
+            <th>Med/motvind</th>
+            <th>Nederbörd</th>
+          </tr>
+        </thead>
+        <tbody id="rows">
+          <tr><td colspan="7" class="msg">Fyll i formuläret och tryck <em>Hämta prognos</em>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer>
+    Väderdata från <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> ·
+    Prognoser blir osäkrare längre fram i tiden (max ~16 dygn) ·
+    Depå-avstånd enligt <a href="https://www.vatternrundan.se/sv/guide/depaer" target="_blank" rel="noopener">vatternrundan.se</a>
+  </footer>
+</div>
+
+<script>
+// --- Bandata: depåer i ordning, avstånd från start (km), koordinater, samt
+// färdriktning (kompasskurs i grader) på etappen vid depån. ---
+const DEPOTS = [
+  { name: "Motala (start)", km: 0,   lat: 58.5371, lon: 15.0364, bearing: 180, side: "Söderut, östra sidan" },
+  { name: "Ödeshög",        km: 47,  lat: 58.2308, lon: 14.6519, bearing: 200, side: "Söderut" },
+  { name: "Ölmstad",        km: 83,  lat: 57.9667, lon: 14.4500, bearing: 215, side: "Söderut / sydväst" },
+  { name: "Jönköping",      km: 104, lat: 57.7826, lon: 14.1618, bearing: 295, side: "Vändpunkt, mot väster" },
+  { name: "Fagerhult",      km: 133, lat: 58.0500, lon: 14.1000, bearing: 340, side: "Nordväst" },
+  { name: "Hjo",            km: 171, lat: 58.3050, lon: 14.2890, bearing: 10,  side: "Norrut, västra sidan" },
+  { name: "Karlsborg",      km: 204, lat: 58.5347, lon: 14.5097, bearing: 5,   side: "Norrut" },
+  { name: "Boviken",        km: 225, lat: 58.7000, lon: 14.7000, bearing: 35,  side: "Norrut / nordost" },
+  { name: "Askersund",      km: 256, lat: 58.8800, lon: 14.9050, bearing: 115, side: "Österut mot Motala" },
+  { name: "Godegård",       km: 284, lat: 58.7430, lon: 15.1300, bearing: 140, side: "Sydost mot mål" },
+  { name: "Mål (Motala)",   km: 315, lat: 58.5371, lon: 15.0364, bearing: 145, side: "Sydost, i mål" },
+];
+
+const COMPASS = ["N","NNO","NO","ONO","O","OSO","SO","SSO","S","SSV","SV","VSV","V","VNV","NV","NNV"];
+function compass(deg){ return COMPASS[Math.round(((deg%360)+360)%360 / 22.5) % 16]; }
+
+// Klassificera med-/motvind: vindriktning = riktning vinden kommer FRÅN (meteorologisk).
+// Motvind när vinden kommer från den riktning du cyklar mot.
+function windRelation(windFromDeg, travelBearing){
+  let d = Math.abs(((windFromDeg - travelBearing + 540) % 360) - 180); // 0 = rakt motvind, 180 = rakt medvind
+  if (d <= 45)  return { cls: "head",  label: "Motvind" };
+  if (d >= 135) return { cls: "tail",  label: "Medvind" };
+  // sidvind – nyansera mot lätt med/mot
+  if (d < 80)   return { cls: "cross", label: "Sidvind, svag motvind" };
+  if (d > 100)  return { cls: "cross", label: "Sidvind, svag medvind" };
+  return { cls: "cross", label: "Sidvind" };
+}
+
+// Pil som pekar i färdriktningen (0°=upp/norr). CSS roterar.
+function travelArrow(bearing){ return `<span class="arrow" style="transform:rotate(${bearing}deg)">↑</span>`; }
+
+// Nederbörd-text från Open-Meteos weather_code + sannolikhet + mängd.
+function precipText(code, prob, mm){
+  const heavyCodes = [65,67,75,82,86,95,96,99];
+  const showerCodes = [80,81,82,95,96,99];
+  if (code === 0) return { icon: "☀️", text: "Torrt" };
+  if ([1,2].includes(code) && (prob ?? 0) < 30) return { icon: "🌤️", text: "Torrt" };
+  if (code === 3 && (prob ?? 0) < 30) return { icon: "☁️", text: "Mest torrt" };
+  if (mm >= 0.3 || heavyCodes.includes(code)) {
+    if (showerCodes.includes(code)) return { icon: "🌦️", text: "Skurar" };
+    return { icon: "🌧️", text: "Regn" };
+  }
+  if ((prob ?? 0) >= 55) return { icon: "🌦️", text: "Risk för skur" };
+  if ((prob ?? 0) >= 30) return { icon: "🌥️", text: "Växlande, viss risk" };
+  return { icon: "⛅", text: "Mest torrt" };
+}
+
+function fmtClock(d){
+  return d.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
+}
+function pad(n){ return String(n).padStart(2,"0"); }
+// Lokalt ISO (utan tidszonsskift) i timupplösning: "YYYY-MM-DDTHH:00"
+function isoHour(d){
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`;
+}
+
+const $ = (id) => document.getElementById(id);
+const rows = $("rows");
+
+// Default-datum = idag
+(function initDate(){
+  const now = new Date();
+  $("date").value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+})();
+
+$("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = $("go");
+  const date = $("date").value;
+  const time = $("time").value;
+  const speed = parseFloat($("speed").value);
+  const stopMin = parseFloat($("stop").value) || 0;
+
+  if (!date || !time || !(speed > 0)) return;
+
+  const start = new Date(`${date}T${time}`);
+  if (isNaN(start)) { showError("Ogiltigt datum/tid."); return; }
+
+  // Ankomsttid per depå
+  const arrivals = DEPOTS.map((d, i) => {
+    const rideHours = d.km / speed;
+    const stops = i * stopMin / 60; // stopp vid varje passerad depå innan denna
+    const t = new Date(start.getTime() + (rideHours + stops) * 3600 * 1000);
+    return { ...d, time: t };
+  });
+
+  btn.disabled = true; btn.textContent = "Hämtar…";
+  rows.innerHTML = `<tr><td colspan="7" class="msg">Hämtar väderdata…</td></tr>`;
+
+  try {
+    const lat = DEPOTS.map(d => d.lat).join(",");
+    const lon = DEPOTS.map(d => d.lon).join(",");
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
+      + `&hourly=temperature_2m,precipitation,precipitation_probability,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m`
+      + `&wind_speed_unit=ms&timezone=Europe%2FStockholm&forecast_days=16`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Open-Meteo svarade " + res.status);
+    let data = await res.json();
+    if (!Array.isArray(data)) data = [data]; // ensam punkt -> objekt
+
+    render(arrivals, data, start, speed, stopMin);
+  } catch (err) {
+    showError("Kunde inte hämta prognos: " + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = "Hämta prognos";
+  }
+});
+
+function findHourIndex(times, target){
+  const key = isoHour(target);
+  let idx = times.indexOf(key);
+  if (idx !== -1) return idx;
+  // närmaste timme om exakt saknas (utanför prognosfönstret -> -1)
+  let best = -1, bestDiff = Infinity;
+  const tt = target.getTime();
+  for (let i = 0; i < times.length; i++){
+    const diff = Math.abs(new Date(times[i]).getTime() - tt);
+    if (diff < bestDiff){ bestDiff = diff; best = i; }
+  }
+  // bara om inom 60 min
+  return bestDiff <= 60*60*1000 ? best : -1;
+}
+
+function render(arrivals, data, start, speed, stopMin){
+  const finishTime = arrivals[arrivals.length-1].time;
+  const totalH = (finishTime - start) / 3600000;
+  $("summary").innerHTML =
+    `Start <strong>${start.toLocaleDateString("sv-SE",{weekday:"long",day:"numeric",month:"long"})}</strong> kl <strong>${fmtClock(start)}</strong>`
+    + ` · snittfart <strong>${speed} km/h</strong>`
+    + (stopMin ? ` · ${stopMin} min/depå` : "")
+    + ` · i mål ca <strong>${fmtClock(finishTime)}</strong> (${totalH.toFixed(1)} h)`;
+
+  let html = "";
+  arrivals.forEach((d, i) => {
+    const series = data[i] && data[i].hourly;
+    const isFinish = i === arrivals.length - 1;
+    if (!series){ html += rowUnavailable(d, isFinish); return; }
+    const idx = findHourIndex(series.time, d.time);
+    if (idx === -1){ html += rowOutOfRange(d, isFinish); return; }
+
+    const temp = Math.round(series.temperature_2m[idx]);
+    const wsp = series.wind_speed_10m[idx];
+    const gust = series.wind_gusts_10m ? series.wind_gusts_10m[idx] : null;
+    const wdir = series.wind_direction_10m[idx];
+    const code = series.weather_code[idx];
+    const prob = series.precipitation_probability ? series.precipitation_probability[idx] : null;
+    const mm = series.precipitation[idx];
+
+    const rel = windRelation(wdir, d.bearing);
+    const p = precipText(code, prob, mm);
+    const windStr = `${compass(wdir)} ${Math.round(wsp)}${gust && gust >= wsp+3 ? "–"+Math.round(gust) : ""} m/s`;
+
+    html += `<tr class="${isFinish ? "finish" : ""}">
+      <td><div class="depo">${d.name}</div><div class="dist">${d.km} km</div></td>
+      <td class="time">${fmtClock(d.time)}</td>
+      <td class="temp">${temp}°</td>
+      <td class="wind">${windStr}</td>
+      <td>${travelArrow(d.bearing)} ${d.side}</td>
+      <td><span class="tag ${rel.cls}">${rel.label}</span></td>
+      <td class="precip"><span class="icon">${p.icon}</span>${p.text}${prob!=null && prob>=30 ? ` <span class="dist">(${prob}%)</span>`:""}</td>
+    </tr>`;
+  });
+  rows.innerHTML = html;
+}
+
+function rowOutOfRange(d, isFinish){
+  return `<tr class="${isFinish?"finish":""}">
+    <td><div class="depo">${d.name}</div><div class="dist">${d.km} km</div></td>
+    <td class="time">${fmtClock(d.time)}</td>
+    <td colspan="5" class="msg">Utanför prognosfönstret (max ~16 dygn fram)</td></tr>`;
+}
+function rowUnavailable(d, isFinish){
+  return `<tr class="${isFinish?"finish":""}">
+    <td><div class="depo">${d.name}</div><div class="dist">${d.km} km</div></td>
+    <td class="time">${fmtClock(d.time)}</td>
+    <td colspan="5" class="msg">Ingen data</td></tr>`;
+}
+function showError(msg){
+  rows.innerHTML = `<tr><td colspan="7" class="msg error">${msg}</td></tr>`;
+  $("summary").innerHTML = "";
+}
+</script>
+</body>
+</html>
