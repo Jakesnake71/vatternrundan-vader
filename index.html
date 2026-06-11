@@ -100,6 +100,9 @@
   tbody tr:last-child td { border-bottom: 0; }
   tbody tr.finish td { background: rgba(117,170,219,.12); }
   tbody tr.finish:hover td { background: rgba(117,170,219,.18); }
+  tbody tr.rainy td { background: #dde3ec; }
+  tbody tr.rainy:hover td { background: #d3dbe6; }
+  tbody tr.rainy td.cell-depo { background: #ccd6e3; }
   .depo { font-weight: 600; }
   .dist { color: var(--muted); font-size: .78rem; }
   .time { font-variant-numeric: tabular-nums; font-weight: 600; }
@@ -344,6 +347,7 @@ const PRECIP = {
   thunder:      { icon: "⛈️", text: "Åska" },
   unknown:      { icon: "•",   text: "–" },
 };
+function isWet(e){ return !!e && ["showers", "rain", "sleet", "snow", "thunder"].includes(e.cat); }
 function precipCell(cat, mm){
   const p = PRECIP[cat] || PRECIP.unknown;
   const wet = ["showers","rain","sleet","snow","thunder"].includes(cat);
@@ -480,7 +484,8 @@ function render(){
       ? `<input class="stop-input" type="number" min="0" max="60" step="1" value="${stops[i]}" data-i="${i}" aria-label="Stopptid ${d.name}" />`
       : `<span class="na">–</span>`;
 
-    html += `<tr class="${isFinish ? "finish" : ""}">
+    const rainy = isWet(smhi) || (showYr && isWet(met));
+    html += `<tr class="${isFinish ? "finish " : ""}${rainy ? "rainy" : ""}">
       <td class="cell-depo"><div class="depo">${d.name}</div><div class="dist">${d.km} km</div></td>
       <td data-label="Stopp (min)">${stopCell}</td>
       <td class="time" data-label="Ankomst">${fmtClock(arr)}</td>
@@ -656,7 +661,8 @@ function liveForecastTable(speed){
     const stopCell = d.stoppable
       ? `<input class="stop-input" type="number" min="0" max="60" step="1" value="${stops[i]}" data-i="${i}" aria-label="Stopptid ${d.name}" />`
       : `<span class="na">–</span>`;
-    body += `<tr class="${isFinish ? "finish" : ""}">
+    const rainy = isWet(smhi) || (showYr && isWet(met));
+    body += `<tr class="${isFinish ? "finish " : ""}${rainy ? "rainy" : ""}">
       <td class="cell-depo"><div class="depo">${d.name}</div><div class="dist">${d.km} km · +${left} km kvar</div></td>
       <td data-label="Stopp (min)">${stopCell}</td>
       <td class="time" data-label="Ankomst">${fmtClock(arr)}</td>
