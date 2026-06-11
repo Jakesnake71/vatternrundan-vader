@@ -177,6 +177,7 @@
 
   /* --- Live-flik --- */
   .live-card, .now-wrap { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .live-controls { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
   .now-head { color: var(--muted); font-size: .92rem; margin: 0 0 14px; }
   .now-head strong { color: var(--text); }
   .now-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -270,8 +271,14 @@
 
   <section id="tab-live" hidden>
     <div class="live-card">
-      <p style="margin:0 0 14px;color:var(--muted)">Hämtar din <strong>position</strong> och <strong>aktuella tid</strong> och visar väderrapport för var du är just nu – samt de närmaste timmarna. Tänkt att användas under loppet.</p>
-      <button type="button" id="locate">📍 Hämta min position</button>
+      <p style="margin:0 0 16px;color:var(--muted)">Utifrån din <strong>position</strong>, <strong>aktuella tid</strong> och <strong>snittfart</strong> visas vädret där du är just nu – och en prognos för depåerna framför dig. Tänkt att användas under loppet.</p>
+      <div class="live-controls">
+        <div class="field" style="max-width:170px">
+          <label for="liveSpeed">Snittfart (km/h)</label>
+          <input type="number" id="liveSpeed" value="25" min="10" max="45" step="0.5" />
+        </div>
+        <button type="button" id="locate">📍 Hämta min position</button>
+      </div>
       <div id="liveStatus" class="summary" style="margin:14px 2px 0"></div>
     </div>
     <div id="liveReport"></div>
@@ -542,56 +549,46 @@ $("locate").addEventListener("click", () => {
   );
 });
 
+let LIVE = null; // { now, lat, lon, accuracy, liveCurrent, depotSeries[], currentKm }
+
+// Projektion av position på banan -> uppskattad km in på rundan.
+function toXY(lat, lon){ const k = 111.32, lat0 = 58.4; return [lon * k * Math.cos(lat0 * Math.PI / 180), lat * k]; }
+function projectKm(lat, lon){
+  const p = toXY(lat, lon);
+  let best = { km: 0, dist: Infinity };
+  for (let i = 0; i < DEPOTS.length - 1; i++){
+    const A = toXY(DEPOTS[i].lat, DEPOTS[i].lon), B = toXY(DEPOTS[i+1].lat, DEPOTS[i+1].lon);
+    const ABx = B[0]-A[0], ABy = B[1]-A[1];
+    const ab2 = ABx*ABx + ABy*ABy || 1e-9;
+    let f = ((p[0]-A[0])*ABx + (p[1]-A[1])*ABy) / ab2;
+    f = Math.max(0, Math.min(1, f));
+    const dist = Math.hypot(p[0]-(A[0]+f*ABx), p[1]-(A[1]+f*ABy));
+    if (dist < best.dist) best = { km: DEPOTS[i].km + f * (DEPOTS[i+1].km - DEPOTS[i].km), dist };
+  }
+  return best.km;
+}
+
 async function runLive(lat, lon, now, accuracy){
   const status = $("liveStatus");
   const btn = $("locate");
-  status.textContent = "Hämtar väder för din position…";
+  status.textContent = "Hämtar väder för din position och depåerna framför dig…";
   try {
+    const points = [{ lat, lon }, ...DEPOTS.map(d => ({ lat: d.lat, lon: d.lon }))];
     const res = await fetch("/api/weather", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ points: [{ lat, lon }] }),
+      body: JSON.stringify({ points }),
     });
     if (!res.ok) throw new Error("Servern svarade " + res.status);
     const data = await res.json();
-    const pt = data.points[0];
-    const nowEpoch = Math.round(now.getTime() / 1000);
-    const near = nearestDepot(lat, lon);
-    const remaining = Math.max(0, 315 - near.depot.km);
-
-    const met = pick(pt.met, nowEpoch);
-    const smhi = pick(pt.smhi, nowEpoch);
-    const wd = (met && met.wd != null) ? met.wd : (smhi ? smhi.wd : null);
-    const rel = windRelation(wd, near.depot.bearing);
-    const relTag = rel ? `<span class="tag ${rel.cls}">${rel.label}</span>` : "";
-
-    const accNote = accuracy ? ` (±${Math.round(accuracy)} m)` : "";
-    let html = `<div class="now-wrap">
-      <p class="now-head">Just nu <strong>${fmtClock(now)}</strong> · närmast <strong>${near.depot.name}</strong>
-        (${near.depot.km} km in, ~${near.distKm.toFixed(1)} km bort${accNote}) · ca <strong>${remaining} km</strong> kvar till mål</p>
-      <div class="now-grid">
-        <div class="src-box yr"><h4>🇳🇴 yr.no</h4>${srcSummary(met)}</div>
-        <div class="src-box smhi"><h4>🇸🇪 SMHI</h4>${srcSummary(smhi)}</div>
-      </div>
-      <div class="now-foot">${travelArrow(near.depot.bearing)} <span>Riktning här: <b style="color:var(--text)">${near.depot.side}</b></span> ${relTag}</div>
-    </div>`;
-
-    // Kommande timmar (yr.no:s timserie som tidsaxel)
-    const upcoming = (pt.met || []).filter(e => e.t >= nowEpoch && e.t <= nowEpoch + 8 * 3600).slice(0, 8);
-    if (upcoming.length){
-      html += `<div class="hours-title">Kommande timmar på din position</div><div class="table-card">`;
-      upcoming.forEach(m => {
-        const s = pick(pt.smhi, m.t);
-        html += `<div class="hour">
-          <div class="h-time">${fmtClock(new Date(m.t * 1000))}</div>
-          <div class="h-src yr"><span class="lbl">yr.no</span>${hourCell(m)}</div>
-          <div class="h-src smhi"><span class="lbl">SMHI</span>${hourCell(s)}</div>
-        </div>`;
-      });
-      html += `</div>`;
-    }
-    $("liveReport").innerHTML = html;
+    LIVE = {
+      now, lat, lon, accuracy,
+      liveCurrent: data.points[0],
+      depotSeries: data.points.slice(1),
+      currentKm: projectKm(lat, lon),
+    };
     status.textContent = "";
+    renderLive();
   } catch (err) {
     status.innerHTML = `<span class="error">Kunde inte hämta prognos: ${err.message}</span>`;
   } finally {
@@ -599,13 +596,73 @@ async function runLive(lat, lon, now, accuracy){
   }
 }
 
-function hourCell(e){
-  if (!e || e.temp == null) return `<span class="na">–</span>`;
-  const ws = e.ws != null ? Math.round(e.ws) : null;
-  const windStr = ws != null ? `${compass(e.wd)} ${ws} m/s` : "";
-  const p = PRECIP[e.cat] || PRECIP.unknown;
-  return `<b>${Math.round(e.temp)}°</b> · ${windStr} · ${p.icon}`;
+function renderLive(){
+  if (!LIVE) return;
+  const speed = parseFloat($("liveSpeed").value) || 25;
+  const now = LIVE.now;
+  const nowEpoch = Math.round(now.getTime() / 1000);
+  const near = nearestDepot(LIVE.lat, LIVE.lon);
+  const met = pick(LIVE.liveCurrent.met, nowEpoch);
+  const smhi = pick(LIVE.liveCurrent.smhi, nowEpoch);
+  const wd = (met && met.wd != null) ? met.wd : (smhi ? smhi.wd : null);
+  const rel = windRelation(wd, near.depot.bearing);
+  const relTag = rel ? `<span class="tag ${rel.cls}">${rel.label}</span>` : "";
+  const remaining = Math.max(0, 315 - LIVE.currentKm);
+  const accNote = LIVE.accuracy ? ` (±${Math.round(LIVE.accuracy)} m)` : "";
+
+  let html = `<div class="now-wrap">
+    <p class="now-head">Just nu <strong>${fmtClock(now)}</strong> · ca <strong>${LIVE.currentKm.toFixed(0)} km</strong> in på rundan (närmast ${near.depot.name})${accNote} · ca <strong>${remaining.toFixed(0)} km</strong> kvar</p>
+    <div class="now-grid">
+      <div class="src-box yr"><h4>🇳🇴 yr.no</h4>${srcSummary(met)}</div>
+      <div class="src-box smhi"><h4>🇸🇪 SMHI</h4>${srcSummary(smhi)}</div>
+    </div>
+    <div class="now-foot">${travelArrow(near.depot.bearing)} <span>Riktning här: <b style="color:var(--text)">${near.depot.side}</b></span> ${relTag}</div>
+  </div>`;
+
+  html += liveForecastTable(speed);
+  $("liveReport").innerHTML = html;
 }
+
+// Prognos för depåerna framför dig, utifrån aktuell tid + snittfart.
+function liveForecastTable(speed){
+  const nowMs = LIVE.now.getTime();
+  let cumStop = 0, body = "", any = false;
+  DEPOTS.forEach((d, i) => {
+    if (d.km <= LIVE.currentKm + 0.1) return; // redan passerad
+    any = true;
+    const arrMs = nowMs + ((d.km - LIVE.currentKm) / speed) * 3600000 + cumStop * 60000;
+    cumStop += stops[i];
+    const arr = new Date(arrMs), epoch = Math.round(arrMs / 1000);
+    const s = LIVE.depotSeries[i] || {};
+    const met = pick(s.met, epoch), smhi = pick(s.smhi, epoch);
+    const wd = (met && met.wd != null) ? met.wd : (smhi ? smhi.wd : null);
+    const rel = windRelation(wd, d.bearing);
+    const relCell = rel ? `<span class="tag ${rel.cls}">${rel.label}</span>` : `<span class="na">–</span>`;
+    const isFinish = i === DEPOTS.length - 1;
+    const left = Math.round(d.km - LIVE.currentKm);
+    body += `<tr class="${isFinish ? "finish" : ""}">
+      <td class="cell-depo"><div class="depo">${d.name}</div><div class="dist">${d.km} km · +${left} km kvar</div></td>
+      <td class="time" data-label="Ankomst">${fmtClock(arr)}</td>
+      <td data-label="Med/motvind">${relCell}</td>
+      ${sourceCells(met, "first-yr", "yr.no")}
+      ${sourceCells(smhi, "first-smhi", "SMHI")}
+    </tr>`;
+  });
+  if (!any) return `<div class="now-wrap"><p class="now-head">Du verkar vara i mål – inga depåer kvar framför dig. 🎉</p></div>`;
+  return `<div class="hours-title">Prognos för depåerna framför dig · snittfart ${speed} km/h</div>
+    <div class="table-card"><div class="table-scroll"><table>
+      <thead>
+        <tr><th rowspan="2">Depå</th><th rowspan="2">Ankomst</th><th rowspan="2">Med/motvind</th>
+          <th colspan="3" class="grp yr">🇳🇴 yr.no</th><th colspan="3" class="grp smhi">🇸🇪 SMHI</th></tr>
+        <tr class="sub"><th class="first-yr">Temp</th><th>Vind</th><th>Nederbörd</th>
+          <th class="first-smhi">Temp</th><th>Vind</th><th>Nederbörd</th></tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table></div></div>`;
+}
+
+// Snittfart-ändring räknar om prognosen direkt.
+$("liveSpeed").addEventListener("input", () => { if (LIVE) renderLive(); });
 </script>
 </body>
 </html>
