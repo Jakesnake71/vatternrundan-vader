@@ -209,6 +209,19 @@
   .hour .h-src .lbl { font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; display: block; }
   .hour .h-src.yr .lbl { color: var(--yr); }
   .hour .h-src.smhi .lbl { color: var(--smhi); }
+
+  /* --- Höjdprofil --- */
+  .profile-svg-wrap { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 16px 16px 8px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .profile-meta { color: var(--muted); font-size: .9rem; margin: 0 2px 14px; }
+  .profile-meta strong { color: var(--text); }
+  .climb-box { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-end; }
+  .climb-stat { font-size: .82rem; color: var(--muted); }
+  .climb-stat b { display: block; color: var(--text); font-size: 1.5rem; font-weight: 700; line-height: 1.1; }
+  .climb-stat.up b { color: var(--headwind); }
+  .prof-table th, .prof-table td { text-align: left; }
+  .prof-table td.num, .prof-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .up-val { color: var(--headwind); font-weight: 600; }
+  .down-val { color: var(--tailwind); font-weight: 600; }
   @media (max-width: 560px) { .now-grid { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -222,6 +235,7 @@
   <div class="tabs">
     <button type="button" class="tab active" data-tab="plan">Planera rundan</button>
     <button type="button" class="tab" data-tab="live">Var jag är nu</button>
+    <button type="button" class="tab" data-tab="profile">Höjdprofil</button>
   </div>
 
   <section id="tab-plan">
@@ -292,6 +306,15 @@
       <div id="liveStatus" class="summary" style="margin:14px 2px 0"></div>
     </div>
     <div id="liveReport"></div>
+  </section>
+
+  <section id="tab-profile" hidden>
+    <div class="live-card">
+      <p style="margin:0 0 14px;color:var(--muted)">Ungefärlig höjdprofil för banan (SRTM-höjddata via Open-Meteo, interpolerad mellan depåerna – inte exakt vägprofil). Officiell interaktiv karta finns hos <a href="https://app.racedaymap.com/vatternrundan" target="_blank" rel="noopener">RaceDayMap</a>.</p>
+      <button type="button" id="locateClimb">Stigning till nästa depå från min plats</button>
+      <div id="climbStatus" class="summary" style="margin:12px 2px 0"></div>
+    </div>
+    <div id="profileReport"></div>
   </section>
 
   <footer>
@@ -517,6 +540,8 @@ document.querySelectorAll(".tab").forEach(tab => {
     const target = tab.dataset.tab;
     $("tab-plan").hidden = target !== "plan";
     $("tab-live").hidden = target !== "live";
+    $("tab-profile").hidden = target !== "profile";
+    if (target === "profile") ensureProfile();
   });
 });
 
@@ -699,6 +724,163 @@ function applySourceToggle(){
   $(id).addEventListener("change", e => { showYr = e.target.checked; applySourceToggle(); });
 });
 applySourceToggle(); // initialt: visa endast SMHI
+
+// ---------------------------------------------------------------------------
+// Flik "Höjdprofil": ungefärlig banprofil + stigning till nästa depå
+// ---------------------------------------------------------------------------
+let PROFILE = null, profileLoading = false;
+
+function buildRoutePoints(){
+  const pts = [];
+  for (let i = 0; i < DEPOTS.length - 1; i++){
+    const a = DEPOTS[i], b = DEPOTS[i + 1], segKm = b.km - a.km;
+    const steps = Math.max(1, Math.round(segKm / 2));
+    for (let s = 0; s < steps; s++){
+      const f = s / steps;
+      pts.push({ km: a.km + f * segKm, lat: a.lat + f * (b.lat - a.lat), lon: a.lon + f * (b.lon - a.lon), depot: s === 0 ? i : null });
+    }
+  }
+  const last = DEPOTS.length - 1;
+  pts.push({ km: DEPOTS[last].km, lat: DEPOTS[last].lat, lon: DEPOTS[last].lon, depot: last });
+  return pts;
+}
+
+async function ensureProfile(){
+  if (PROFILE){ renderProfile(); return; }
+  if (profileLoading) return;
+  profileLoading = true;
+  $("profileReport").innerHTML = `<div class="now-wrap"><p class="now-head">Hämtar höjddata…</p></div>`;
+  try {
+    const pts = buildRoutePoints();
+    const res = await fetch("/api/elevation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ points: pts.map(p => ({ lat: p.lat, lon: p.lon })) }) });
+    if (!res.ok) throw new Error("status " + res.status);
+    const data = await res.json();
+    pts.forEach((p, i) => p.ele = data.elevation[i]);
+    PROFILE = pts;
+    renderProfile();
+  } catch (err){
+    $("profileReport").innerHTML = `<div class="now-wrap"><p class="now-head error">Kunde inte hämta höjddata: ${err.message}</p></div>`;
+  } finally { profileLoading = false; }
+}
+
+function depotEle(i){ const p = PROFILE.find(q => q.depot === i); return p ? p.ele : null; }
+function totalAscent(fromKm, toKm){
+  let asc = 0;
+  const seg = PROFILE.filter(p => p.km >= fromKm - 0.01 && p.km <= toKm + 0.01);
+  for (let i = 1; i < seg.length; i++){ const d = seg[i].ele - seg[i-1].ele; if (d > 0) asc += d; }
+  return asc;
+}
+function interpEle(km){
+  if (!PROFILE) return null;
+  for (let i = 1; i < PROFILE.length; i++){
+    if (PROFILE[i].km >= km){
+      const a = PROFILE[i-1], b = PROFILE[i], f = (km - a.km) / ((b.km - a.km) || 1);
+      return a.ele + f * (b.ele - a.ele);
+    }
+  }
+  return PROFILE[PROFILE.length - 1].ele;
+}
+
+function profileSVG(highlight){
+  const W = 1000, H = 300, padL = 44, padR = 14, padT = 14, padB = 26;
+  const eles = PROFILE.map(p => p.ele);
+  const minE = Math.floor(Math.min(...eles) / 10) * 10;
+  const maxE = Math.ceil(Math.max(...eles) / 10) * 10;
+  const x = km => padL + km / 315 * (W - padL - padR);
+  const y = e => (H - padB) - (e - minE) / ((maxE - minE) || 1) * (H - padB - padT);
+  let line = `M ${x(PROFILE[0].km).toFixed(1)} ${y(PROFILE[0].ele).toFixed(1)}`;
+  PROFILE.forEach(p => line += ` L ${x(p.km).toFixed(1)} ${y(p.ele).toFixed(1)}`);
+  const area = line + ` L ${x(315).toFixed(1)} ${H - padB} L ${x(0).toFixed(1)} ${H - padB} Z`;
+  let hl = "";
+  if (highlight){
+    const seg = PROFILE.filter(p => p.km >= highlight.fromKm - 2 && p.km <= highlight.toKm + 0.01);
+    if (seg.length > 1){
+      let hd = `M ${x(seg[0].km).toFixed(1)} ${H - padB}`;
+      seg.forEach(p => hd += ` L ${x(p.km).toFixed(1)} ${y(p.ele).toFixed(1)}`);
+      hd += ` L ${x(seg[seg.length - 1].km).toFixed(1)} ${H - padB} Z`;
+      hl = `<path d="${hd}" fill="rgba(214,0,42,.20)"/>`;
+    }
+  }
+  let dots = "";
+  DEPOTS.forEach((dep, i) => {
+    const e = depotEle(i); if (e == null) return;
+    dots += `<circle cx="${x(dep.km).toFixed(1)}" cy="${y(e).toFixed(1)}" r="3" fill="var(--accent)"/>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block">
+    <path d="${area}" fill="rgba(117,170,219,.25)"/>
+    ${hl}
+    <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+    ${dots}
+    <text x="4" y="${(y(maxE) + 4).toFixed(0)}" font-size="12" fill="var(--muted)">${maxE} m</text>
+    <text x="4" y="${y(minE).toFixed(0)}" font-size="12" fill="var(--muted)">${minE} m</text>
+  </svg>`;
+}
+
+function renderProfile(highlight){
+  const totAsc = Math.round(totalAscent(0, 315));
+  let html = `<div class="profile-svg-wrap">
+    <div class="profile-meta">Hela banan: <strong>315 km</strong> · total stigning ca <strong>${totAsc} m</strong> (ungefärlig)</div>
+    ${profileSVG(highlight)}
+  </div>`;
+  let body = "";
+  DEPOTS.forEach((dep, i) => {
+    const e = depotEle(i);
+    let delta = "–";
+    if (i > 0 && e != null){
+      const d = Math.round(e - depotEle(i - 1));
+      delta = d > 0 ? `<span class="up-val">▲ +${d} m</span>` : d < 0 ? `<span class="down-val">▼ ${d} m</span>` : "0 m";
+    }
+    body += `<tr>
+      <td class="cell-depo"><div class="depo">${dep.name}</div><div class="dist">${dep.km} km</div></td>
+      <td class="num" data-label="Höjd">${e != null ? Math.round(e) + " m" : "–"}</td>
+      <td class="num" data-label="Ändring från föregående">${delta}</td>
+    </tr>`;
+  });
+  html += `<div class="table-card"><div class="table-scroll"><table class="prof-table">
+    <thead><tr><th>Depå</th><th class="num">Höjd</th><th class="num">Ändring från föregående</th></tr></thead>
+    <tbody>${body}</tbody></table></div></div>`;
+  $("profileReport").innerHTML = html;
+}
+
+$("locateClimb").addEventListener("click", () => {
+  const status = $("climbStatus"), btn = $("locateClimb");
+  if (!navigator.geolocation){ status.innerHTML = `<span class="error">Positionsbestämning stöds inte.</span>`; return; }
+  btn.disabled = true; btn.textContent = "Hämtar position…";
+  status.textContent = "Tillåt platsåtkomst…";
+  navigator.geolocation.getCurrentPosition(
+    async pos => {
+      try {
+        await ensureProfile();
+        const km = projectKm(pos.coords.latitude, pos.coords.longitude);
+        const next = DEPOTS.find(d => d.km > km + 0.1);
+        if (!next){
+          renderProfile();
+          status.innerHTML = "Du verkar vara i mål – inga depåer kvar framför dig. 🎉";
+        } else {
+          const asc = Math.round(totalAscent(km, next.km));
+          const netGain = Math.round(depotEle(DEPOTS.indexOf(next)) - interpEle(km));
+          const dist = (next.km - km).toFixed(1);
+          renderProfile({ fromKm: km, toKm: next.km });
+          status.innerHTML = `<div class="climb-box">
+            <div class="climb-stat">Nästa depå<b>${next.name}</b></div>
+            <div class="climb-stat">Avstånd<b>${dist} km</b></div>
+            <div class="climb-stat up">Stigning dit<b>+${asc} m</b></div>
+            <div class="climb-stat">Höjdskillnad<b>${netGain >= 0 ? "+" : ""}${netGain} m</b></div>
+          </div>`;
+        }
+      } catch (e){
+        status.innerHTML = `<span class="error">Kunde inte beräkna: ${e.message}</span>`;
+      }
+      btn.disabled = false; btn.textContent = "Uppdatera stigning till nästa depå";
+    },
+    err => {
+      const msg = err.code === 1 ? "Platsåtkomst nekades." : err.code === 3 ? "Tidsgräns – försök igen." : "Kunde inte hämta position.";
+      status.innerHTML = `<span class="error">${msg}</span>`;
+      btn.disabled = false; btn.textContent = "Stigning till nästa depå från min plats";
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+  );
+});
 </script>
 </body>
 </html>

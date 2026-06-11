@@ -187,6 +187,28 @@ async def weather(req: WeatherRequest):
     return JSONResponse({"points": results})
 
 
+@app.post("/api/elevation")
+async def elevation(req: WeatherRequest):
+    """Höjd över havet (m) per punkt, från Open-Meteo Elevation (SRTM).
+    Batchar i bitar om 100 punkter (API:ets gräns)."""
+    pts = req.points
+    out: list = []
+    async with httpx.AsyncClient() as client:
+        for i in range(0, len(pts), 100):
+            chunk = pts[i:i + 100]
+            r = await client.get(
+                "https://api.open-meteo.com/v1/elevation",
+                params={
+                    "latitude": ",".join(str(round(p.lat, 5)) for p in chunk),
+                    "longitude": ",".join(str(round(p.lon, 5)) for p in chunk),
+                },
+                timeout=20,
+            )
+            r.raise_for_status()
+            out.extend(r.json()["elevation"])
+    return JSONResponse({"elevation": out})
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
