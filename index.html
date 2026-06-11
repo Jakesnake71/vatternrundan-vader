@@ -178,6 +178,9 @@
   /* --- Live-flik --- */
   .live-card, .now-wrap { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
   .live-controls { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+  .src-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: .88rem; color: var(--text); cursor: pointer; user-select: none; }
+  .src-toggle input { width: auto; margin: 0; accent-color: var(--accent); }
+  .hide-yr .yr-col { display: none !important; }
   .now-head { color: var(--muted); font-size: .92rem; margin: 0 0 14px; }
   .now-head strong { color: var(--text); }
   .now-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -207,7 +210,7 @@
   <header>
     <span class="badge">🚴 315 km runt Vättern</span>
     <h1>Vätternrundan – Väderprognos</h1>
-    <p>Ange starttid, snittfart och stopptid per depå. Vädret visas depå för depå från <strong style="color:var(--yr)">yr.no</strong> och <strong style="color:var(--smhi)">SMHI</strong>.</p>
+    <p>Ange starttid, snittfart och stopptid per depå. Vädret visas depå för depå från <strong style="color:var(--smhi)">SMHI</strong> – kryssa i <em>Visa även yr.no</em> för båda källorna.</p>
   </header>
 
   <div class="tabs">
@@ -227,7 +230,7 @@
     </div>
     <div class="field">
       <label for="speed">Snittfart (km/h)</label>
-      <input type="number" id="speed" value="25" min="10" max="45" step="0.5" required />
+      <input type="text" inputmode="decimal" id="speed" value="27,5" required />
     </div>
     <div class="field">
       <button type="submit" id="go">Hämta prognos</button>
@@ -240,6 +243,7 @@
     <span>min</span>
     <button type="button" class="ghost" id="applyAll">Sätt på alla depåer</button>
     <span class="hint" style="margin:0">– eller ändra per depå i tabellen.</span>
+    <label class="src-toggle"><input type="checkbox" id="showYrPlan" /> Visa även yr.no</label>
   </div>
 
   <div id="summary" class="summary"></div>
@@ -253,12 +257,12 @@
             <th rowspan="2">Stopp</th>
             <th rowspan="2">Ankomst</th>
             <th rowspan="2">Med/motvind</th>
-            <th colspan="3" class="grp yr">🇳🇴 yr.no</th>
-            <th colspan="3" class="grp smhi">🇸🇪 SMHI</th>
+            <th colspan="3" class="grp yr yr-col">🇳🇴 yr.no</th>
+            <th colspan="3" class="grp smhi smhi-col">🇸🇪 SMHI</th>
           </tr>
           <tr class="sub">
-            <th class="first-yr">Temp</th><th>Vind</th><th>Nederbörd</th>
-            <th class="first-smhi">Temp</th><th>Vind</th><th>Nederbörd</th>
+            <th class="first-yr yr-col">Temp</th><th class="yr-col">Vind</th><th class="yr-col">Nederbörd</th>
+            <th class="first-smhi smhi-col">Temp</th><th class="smhi-col">Vind</th><th class="smhi-col">Nederbörd</th>
           </tr>
         </thead>
         <tbody id="rows">
@@ -275,9 +279,10 @@
       <div class="live-controls">
         <div class="field" style="max-width:170px">
           <label for="liveSpeed">Snittfart (km/h)</label>
-          <input type="number" id="liveSpeed" value="25" min="10" max="45" step="0.5" />
+          <input type="text" inputmode="decimal" id="liveSpeed" value="27,5" />
         </div>
         <button type="button" id="locate">📍 Hämta min position</button>
+        <label class="src-toggle"><input type="checkbox" id="showYrLive" /> Visa även yr.no</label>
       </div>
       <div id="liveStatus" class="summary" style="margin:14px 2px 0"></div>
     </div>
@@ -346,12 +351,21 @@ function precipCell(cat, mm){
 
 function fmtClock(d){ return d.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" }); }
 function pad(n){ return String(n).padStart(2,"0"); }
+function parseSpeed(v){ const n = parseFloat(String(v).replace(",", ".")); return n > 0 ? n : 27.5; }
+function sv(n){ return String(n).replace(".", ","); }
 
 const $ = (id) => document.getElementById(id);
 const rows = $("rows");
 
 let WEATHER = null;          // svar från backend: [{met:[...], smhi:[...]}] per depå
 const stops = DEPOTS.map(() => 0); // stopptid (min) per depå
+let showYr = false;          // visa även yr.no (SMHI visas alltid)
+
+// Vindriktning för med/motvind: använd den visade källan (SMHI som standard).
+function pickWd(met, smhi){
+  const a = showYr ? met : smhi, b = showYr ? smhi : met;
+  return (a && a.wd != null) ? a.wd : (b ? b.wd : null);
+}
 
 $("date").value = "2026-06-13";
 
@@ -411,10 +425,11 @@ function pick(series, epochSec){
 }
 
 function sourceCells(entry, firstClass, src){
+  const col = src === "yr.no" ? "yr-col" : "smhi-col";
   if (!entry || entry.temp == null) {
-    return `<td class="${firstClass} na" data-label="${src} · temp">–</td>`
-         + `<td class="na" data-label="${src} · vind">–</td>`
-         + `<td class="na" data-label="${src} · nederbörd">–</td>`;
+    return `<td class="${firstClass} ${col} na" data-label="${src} · temp">–</td>`
+         + `<td class="${col} na" data-label="${src} · vind">–</td>`
+         + `<td class="${col} na" data-label="${src} · nederbörd">–</td>`;
   }
   const temp = Math.round(entry.temp);
   const ws = entry.ws != null ? Math.round(entry.ws) : null;
@@ -422,15 +437,15 @@ function sourceCells(entry, firstClass, src){
   const windStr = ws != null
     ? `${compass(entry.wd)} ${ws}${(wg && wg >= ws + 3) ? "–" + wg : ""} m/s`
     : "–";
-  return `<td class="${firstClass} temp" data-label="${src} · temp">${temp}°</td>`
-       + `<td class="wind" data-label="${src} · vind">${windStr}</td>`
-       + `<td class="precip" data-label="${src} · nederbörd">${precipCell(entry.cat, entry.mm)}</td>`;
+  return `<td class="${firstClass} ${col} temp" data-label="${src} · temp">${temp}°</td>`
+       + `<td class="${col} wind" data-label="${src} · vind">${windStr}</td>`
+       + `<td class="${col} precip" data-label="${src} · nederbörd">${precipCell(entry.cat, entry.mm)}</td>`;
 }
 
 function render(){
   const start = startDate();
-  const speed = parseFloat($("speed").value);
-  if (!start || !(speed > 0)) { showError("Fyll i giltigt datum, tid och snittfart."); return; }
+  const speed = parseSpeed($("speed").value);
+  if (!start) { showError("Fyll i giltigt datum och tid."); return; }
 
   const arrivals = computeArrivals(start, speed);
   const finish = arrivals[arrivals.length - 1];
@@ -438,7 +453,7 @@ function render(){
   const totalH = (finish - start) / 3600000;
   $("summary").innerHTML =
     `Start <strong>${start.toLocaleDateString("sv-SE",{weekday:"long",day:"numeric",month:"long"})}</strong> kl <strong>${fmtClock(start)}</strong>`
-    + ` · snittfart <strong>${speed} km/h</strong> · stopp totalt <strong>${totalStop} min</strong>`
+    + ` · snittfart <strong>${sv(speed)} km/h</strong> · stopp totalt <strong>${totalStop} min</strong>`
     + ` · i mål ca <strong>${fmtClock(finish)}</strong> (${totalH.toFixed(1)} h)`;
 
   let html = "";
@@ -450,9 +465,7 @@ function render(){
     const met = pt ? pick(pt.met, epoch) : null;
     const smhi = pt ? pick(pt.smhi, epoch) : null;
 
-    // Med/motvind: använd yr.no:s vind, faller tillbaka på SMHI.
-    const wd = (met && met.wd != null) ? met.wd : (smhi ? smhi.wd : null);
-    const rel = windRelation(wd, d.bearing);
+    const rel = windRelation(pickWd(met, smhi), d.bearing);
     const relCell = rel ? `<span class="tag ${rel.cls}">${rel.label}</span>` : `<span class="na">–</span>`;
 
     const stopCell = d.stoppable
@@ -598,24 +611,25 @@ async function runLive(lat, lon, now, accuracy){
 
 function renderLive(){
   if (!LIVE) return;
-  const speed = parseFloat($("liveSpeed").value) || 25;
+  const speed = parseSpeed($("liveSpeed").value);
   const now = LIVE.now;
   const nowEpoch = Math.round(now.getTime() / 1000);
   const near = nearestDepot(LIVE.lat, LIVE.lon);
   const met = pick(LIVE.liveCurrent.met, nowEpoch);
   const smhi = pick(LIVE.liveCurrent.smhi, nowEpoch);
-  const wd = (met && met.wd != null) ? met.wd : (smhi ? smhi.wd : null);
-  const rel = windRelation(wd, near.depot.bearing);
+  const rel = windRelation(pickWd(met, smhi), near.depot.bearing);
   const relTag = rel ? `<span class="tag ${rel.cls}">${rel.label}</span>` : "";
   const remaining = Math.max(0, 315 - LIVE.currentKm);
   const accNote = LIVE.accuracy ? ` (±${Math.round(LIVE.accuracy)} m)` : "";
 
+  const boxes = [];
+  if (showYr) boxes.push(`<div class="src-box yr"><h4>🇳🇴 yr.no</h4>${srcSummary(met)}</div>`);
+  boxes.push(`<div class="src-box smhi"><h4>🇸🇪 SMHI</h4>${srcSummary(smhi)}</div>`);
+  const gridStyle = boxes.length === 1 ? ' style="grid-template-columns:1fr"' : '';
+
   let html = `<div class="now-wrap">
     <p class="now-head">Just nu <strong>${fmtClock(now)}</strong> · ca <strong>${LIVE.currentKm.toFixed(0)} km</strong> in på rundan (närmast ${near.depot.name})${accNote} · ca <strong>${remaining.toFixed(0)} km</strong> kvar</p>
-    <div class="now-grid">
-      <div class="src-box yr"><h4>🇳🇴 yr.no</h4>${srcSummary(met)}</div>
-      <div class="src-box smhi"><h4>🇸🇪 SMHI</h4>${srcSummary(smhi)}</div>
-    </div>
+    <div class="now-grid"${gridStyle}>${boxes.join("")}</div>
     <div class="now-foot">${travelArrow(near.depot.bearing)} <span>Riktning här: <b style="color:var(--text)">${near.depot.side}</b></span> ${relTag}</div>
   </div>`;
 
@@ -643,8 +657,7 @@ function liveForecastTable(speed){
     const arr = new Date(arrMs), epoch = Math.round(arrMs / 1000);
     const s = LIVE.depotSeries[i] || {};
     const met = pick(s.met, epoch), smhi = pick(s.smhi, epoch);
-    const wd = (met && met.wd != null) ? met.wd : (smhi ? smhi.wd : null);
-    const rel = windRelation(wd, d.bearing);
+    const rel = windRelation(pickWd(met, smhi), d.bearing);
     const relCell = rel ? `<span class="tag ${rel.cls}">${rel.label}</span>` : `<span class="na">–</span>`;
     const isFinish = i === DEPOTS.length - 1;
     const left = Math.round(d.km - LIVE.currentKm);
@@ -661,13 +674,13 @@ function liveForecastTable(speed){
     </tr>`;
   });
   if (!any) return `<div class="now-wrap"><p class="now-head">Du verkar vara i mål – inga depåer kvar framför dig. 🎉</p></div>`;
-  return `<div class="hours-title">Prognos för depåerna framför dig · snittfart ${speed} km/h</div>
+  return `<div class="hours-title">Prognos för depåerna framför dig · snittfart ${sv(speed)} km/h</div>
     <div class="table-card"><div class="table-scroll"><table>
       <thead>
         <tr><th rowspan="2">Depå</th><th rowspan="2">Stopp</th><th rowspan="2">Ankomst</th><th rowspan="2">Med/motvind</th>
-          <th colspan="3" class="grp yr">🇳🇴 yr.no</th><th colspan="3" class="grp smhi">🇸🇪 SMHI</th></tr>
-        <tr class="sub"><th class="first-yr">Temp</th><th>Vind</th><th>Nederbörd</th>
-          <th class="first-smhi">Temp</th><th>Vind</th><th>Nederbörd</th></tr>
+          <th colspan="3" class="grp yr yr-col">🇳🇴 yr.no</th><th colspan="3" class="grp smhi smhi-col">🇸🇪 SMHI</th></tr>
+        <tr class="sub"><th class="first-yr yr-col">Temp</th><th class="yr-col">Vind</th><th class="yr-col">Nederbörd</th>
+          <th class="first-smhi smhi-col">Temp</th><th class="smhi-col">Vind</th><th class="smhi-col">Nederbörd</th></tr>
       </thead>
       <tbody>${body}</tbody>
     </table></div></div>`;
@@ -675,6 +688,19 @@ function liveForecastTable(speed){
 
 // Snittfart-ändring räknar om prognosen direkt.
 $("liveSpeed").addEventListener("input", () => { if (LIVE) renderLive(); });
+
+// Källval: SMHI visas alltid, yr.no som tillval (kryssruta finns i båda flikar).
+function applySourceToggle(){
+  document.body.classList.toggle("hide-yr", !showYr);
+  $("showYrPlan").checked = showYr;
+  $("showYrLive").checked = showYr;
+  if (WEATHER) render();
+  if (LIVE) renderLive();
+}
+["showYrPlan", "showYrLive"].forEach(id => {
+  $(id).addEventListener("change", e => { showYr = e.target.checked; applySourceToggle(); });
+});
+applySourceToggle(); // initialt: visa endast SMHI
 </script>
 </body>
 </html>
