@@ -131,6 +131,8 @@
     .wrap { padding: 20px 12px 56px; }
     form { grid-template-columns: 1fr 1fr; gap: 12px; }
     form .field:last-child { grid-column: 1 / -1; }
+    #date, #time { font-size: .8rem; padding: 8px 4px; text-align: center; }
+    .field label[for="date"], .field label[for="time"] { text-align: center; }
     .bulk { font-size: .82rem; }
 
     table { min-width: 0; width: 100%; }
@@ -310,7 +312,6 @@
 
   <section id="tab-profile" hidden>
     <div class="live-card">
-      <p style="margin:0 0 14px;color:var(--muted)">Ungefärlig höjdprofil för banan (SRTM-höjddata via Open-Meteo, interpolerad mellan depåerna – inte exakt vägprofil). Officiell interaktiv karta finns hos <a href="https://app.racedaymap.com/vatternrundan" target="_blank" rel="noopener">RaceDayMap</a>.</p>
       <button type="button" id="locateClimb">Stigning till nästa depå från min plats</button>
       <div id="climbStatus" class="summary" style="margin:12px 2px 0"></div>
     </div>
@@ -782,7 +783,9 @@ function interpEle(km){
 }
 
 function profileSVG(highlight){
-  const W = 1000, H = 300, padL = 44, padR = 14, padT = 14, padB = 26;
+  const mob = window.innerWidth <= 760;
+  const W = mob ? 390 : 1000, H = mob ? 230 : 300;
+  const padL = mob ? 34 : 44, padR = mob ? 8 : 14, padT = 12, padB = 22, fs = mob ? 11 : 12;
   const eles = PROFILE.map(p => p.ele);
   const minE = Math.floor(Math.min(...eles) / 10) * 10;
   const maxE = Math.ceil(Math.max(...eles) / 10) * 10;
@@ -811,8 +814,8 @@ function profileSVG(highlight){
     ${hl}
     <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"/>
     ${dots}
-    <text x="4" y="${(y(maxE) + 4).toFixed(0)}" font-size="12" fill="var(--muted)">${maxE} m</text>
-    <text x="4" y="${y(minE).toFixed(0)}" font-size="12" fill="var(--muted)">${minE} m</text>
+    <text x="3" y="${(y(maxE) + 4).toFixed(0)}" font-size="${fs}" fill="var(--muted)">${maxE} m</text>
+    <text x="3" y="${y(minE).toFixed(0)}" font-size="${fs}" fill="var(--muted)">${minE} m</text>
   </svg>`;
 }
 
