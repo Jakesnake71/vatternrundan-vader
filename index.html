@@ -153,6 +153,41 @@
     tbody td.first-yr::before, tbody td.first-smhi::before { font-weight: 700; }
   }
   @media (max-width: 400px) { form { grid-template-columns: 1fr; } }
+
+  /* --- Flikar --- */
+  .tabs { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+  .tab {
+    background: var(--bg-2); border: 1px solid var(--line); color: var(--muted);
+    border-radius: 10px; padding: 10px 16px; font-weight: 600; font-size: .95rem; min-height: 0;
+  }
+  .tab:hover { filter: none; color: var(--text); }
+  .tab.active { background: var(--card); color: var(--text); border-color: var(--accent); }
+  [hidden] { display: none !important; }
+
+  /* --- Live-flik --- */
+  .live-card, .now-wrap { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+  .now-head { color: var(--muted); font-size: .92rem; margin: 0 0 14px; }
+  .now-head strong { color: var(--text); }
+  .now-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .src-box { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .src-box.yr { border-left: 3px solid var(--yr); }
+  .src-box.smhi { border-left: 3px solid var(--smhi); }
+  .src-box h4 { margin: 0 0 10px; font-size: .85rem; font-weight: 700; }
+  .src-box.yr h4 { color: var(--yr); }
+  .src-box.smhi h4 { color: var(--smhi); }
+  .big-temp { font-size: 2.1rem; font-weight: 700; line-height: 1; }
+  .src-box .row2 { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); margin-top: 10px; font-size: .9rem; }
+  .src-box .row2 b { color: var(--text); font-weight: 600; }
+  .now-foot { margin-top: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--muted); font-size: .9rem; }
+  .hours-title { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 4px 2px 10px; font-weight: 600; }
+  .hour { display: grid; grid-template-columns: 60px 1fr 1fr; gap: 10px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .hour:last-child { border-bottom: 0; }
+  .hour .h-time { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .hour .h-src { font-size: .9rem; }
+  .hour .h-src .lbl { font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; display: block; }
+  .hour .h-src.yr .lbl { color: var(--yr); }
+  .hour .h-src.smhi .lbl { color: var(--smhi); }
+  @media (max-width: 560px) { .now-grid { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -163,6 +198,12 @@
     <p>Ange starttid, snittfart och stopptid per depå. Vädret visas depå för depå från <strong style="color:var(--yr)">yr.no</strong> och <strong style="color:var(--smhi)">SMHI</strong>.</p>
   </header>
 
+  <div class="tabs">
+    <button type="button" class="tab active" data-tab="plan">🗺️ Planera rundan</button>
+    <button type="button" class="tab" data-tab="live">📍 Var jag är nu</button>
+  </div>
+
+  <section id="tab-plan">
   <form id="form">
     <div class="field">
       <label for="date">Startdatum</label>
@@ -200,7 +241,6 @@
             <th rowspan="2">Depå</th>
             <th rowspan="2">Stopp</th>
             <th rowspan="2">Ankomst</th>
-            <th rowspan="2">Riktning du cyklar</th>
             <th rowspan="2">Med/motvind</th>
             <th colspan="3" class="grp yr">🇳🇴 yr.no</th>
             <th colspan="3" class="grp smhi">🇸🇪 SMHI</th>
@@ -211,11 +251,21 @@
           </tr>
         </thead>
         <tbody id="rows">
-          <tr><td colspan="11" class="msg">Fyll i formuläret och tryck <em>Hämta prognos</em>.</td></tr>
+          <tr><td colspan="10" class="msg">Fyll i formuläret och tryck <em>Hämta prognos</em>.</td></tr>
         </tbody>
       </table>
     </div>
   </div>
+  </section>
+
+  <section id="tab-live" hidden>
+    <div class="live-card">
+      <p style="margin:0 0 14px;color:var(--muted)">Hämtar din <strong>position</strong> och <strong>aktuella tid</strong> och visar väderrapport för var du är just nu – samt de närmaste timmarna. Tänkt att användas under loppet.</p>
+      <button type="button" id="locate">📍 Hämta min position</button>
+      <div id="liveStatus" class="summary" style="margin:14px 2px 0"></div>
+    </div>
+    <div id="liveReport"></div>
+  </section>
 
   <footer>
     Källor: <a href="https://www.yr.no" target="_blank" rel="noopener">yr.no</a> (MET Norway) och
@@ -296,7 +346,7 @@ $("form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const btn = $("go");
   btn.disabled = true; btn.textContent = "Hämtar…";
-  rows.innerHTML = `<tr><td colspan="11" class="msg">Hämtar väderdata från yr.no och SMHI…</td></tr>`;
+  rows.innerHTML = `<tr><td colspan="10" class="msg">Hämtar väderdata från yr.no och SMHI…</td></tr>`;
   try {
     const res = await fetch("/api/weather", {
       method: "POST",
@@ -399,7 +449,6 @@ function render(){
       <td class="cell-depo"><div class="depo">${d.name}</div><div class="dist">${d.km} km</div></td>
       <td data-label="Stopp (min)">${stopCell}</td>
       <td class="time" data-label="Ankomst">${fmtClock(arr)}</td>
-      <td data-label="Riktning du cyklar">${travelArrow(d.bearing)} ${d.side}</td>
       <td data-label="Med/motvind">${relCell}</td>
       ${sourceCells(met, "first-yr", "yr.no")}
       ${sourceCells(smhi, "first-smhi", "SMHI")}
@@ -424,8 +473,131 @@ function syncStopInputs(){
 }
 
 function showError(msg){
-  rows.innerHTML = `<tr><td colspan="11" class="msg error">${msg}</td></tr>`;
+  rows.innerHTML = `<tr><td colspan="10" class="msg error">${msg}</td></tr>`;
   $("summary").innerHTML = "";
+}
+
+// ---------------------------------------------------------------------------
+// Flik "Var jag är nu": position + aktuell tid -> väderrapport
+// ---------------------------------------------------------------------------
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t === tab));
+    const target = tab.dataset.tab;
+    $("tab-plan").hidden = target !== "plan";
+    $("tab-live").hidden = target !== "live";
+  });
+});
+
+function haversine(lat1, lon1, lat2, lon2){
+  const R = 6371, toR = x => x * Math.PI / 180;
+  const dLat = toR(lat2 - lat1), dLon = toR(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toR(lat1)) * Math.cos(toR(lat2)) * Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+function nearestDepot(lat, lon){
+  let best = 0, bd = Infinity;
+  DEPOTS.forEach((d, i) => { const dist = haversine(lat, lon, d.lat, d.lon); if (dist < bd){ bd = dist; best = i; } });
+  return { idx: best, depot: DEPOTS[best], distKm: bd };
+}
+
+function srcSummary(entry){
+  if (!entry || entry.temp == null) return `<div class="row2 na">Ingen data</div>`;
+  const ws = entry.ws != null ? Math.round(entry.ws) : null;
+  const wg = entry.wg != null ? Math.round(entry.wg) : null;
+  const windStr = ws != null ? `${compass(entry.wd)} ${ws}${(wg && wg >= ws + 3) ? "–" + wg : ""} m/s` : "–";
+  const p = PRECIP[entry.cat] || PRECIP.unknown;
+  return `<div class="big-temp">${Math.round(entry.temp)}°</div>
+    <div class="row2">
+      <span>💨 <b>${windStr}</b></span>
+      <span>${p.icon} <b>${p.text}</b></span>
+    </div>`;
+}
+
+$("locate").addEventListener("click", () => {
+  const status = $("liveStatus");
+  if (!navigator.geolocation){
+    status.innerHTML = `<span class="error">Din webbläsare stöder inte positionsbestämning.</span>`;
+    return;
+  }
+  const btn = $("locate");
+  btn.disabled = true; btn.textContent = "Hämtar position…";
+  status.textContent = "Tillåt platsåtkomst i webbläsaren…";
+  navigator.geolocation.getCurrentPosition(
+    pos => runLive(pos.coords.latitude, pos.coords.longitude, new Date(), pos.coords.accuracy),
+    err => {
+      const msg = err.code === 1 ? "Platsåtkomst nekades." :
+                  err.code === 3 ? "Tidsgräns – försök igen." : "Kunde inte hämta position.";
+      status.innerHTML = `<span class="error">${msg}</span>`;
+      btn.disabled = false; btn.textContent = "📍 Hämta min position";
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+  );
+});
+
+async function runLive(lat, lon, now, accuracy){
+  const status = $("liveStatus");
+  const btn = $("locate");
+  status.textContent = "Hämtar väder för din position…";
+  try {
+    const res = await fetch("/api/weather", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ points: [{ lat, lon }] }),
+    });
+    if (!res.ok) throw new Error("Servern svarade " + res.status);
+    const data = await res.json();
+    const pt = data.points[0];
+    const nowEpoch = Math.round(now.getTime() / 1000);
+    const near = nearestDepot(lat, lon);
+    const remaining = Math.max(0, 315 - near.depot.km);
+
+    const met = pick(pt.met, nowEpoch);
+    const smhi = pick(pt.smhi, nowEpoch);
+    const wd = (met && met.wd != null) ? met.wd : (smhi ? smhi.wd : null);
+    const rel = windRelation(wd, near.depot.bearing);
+    const relTag = rel ? `<span class="tag ${rel.cls}">${rel.label}</span>` : "";
+
+    const accNote = accuracy ? ` (±${Math.round(accuracy)} m)` : "";
+    let html = `<div class="now-wrap">
+      <p class="now-head">Just nu <strong>${fmtClock(now)}</strong> · närmast <strong>${near.depot.name}</strong>
+        (${near.depot.km} km in, ~${near.distKm.toFixed(1)} km bort${accNote}) · ca <strong>${remaining} km</strong> kvar till mål</p>
+      <div class="now-grid">
+        <div class="src-box yr"><h4>🇳🇴 yr.no</h4>${srcSummary(met)}</div>
+        <div class="src-box smhi"><h4>🇸🇪 SMHI</h4>${srcSummary(smhi)}</div>
+      </div>
+      <div class="now-foot">${travelArrow(near.depot.bearing)} <span>Riktning här: <b style="color:var(--text)">${near.depot.side}</b></span> ${relTag}</div>
+    </div>`;
+
+    // Kommande timmar (yr.no:s timserie som tidsaxel)
+    const upcoming = (pt.met || []).filter(e => e.t >= nowEpoch && e.t <= nowEpoch + 8 * 3600).slice(0, 8);
+    if (upcoming.length){
+      html += `<div class="hours-title">Kommande timmar på din position</div><div class="table-card">`;
+      upcoming.forEach(m => {
+        const s = pick(pt.smhi, m.t);
+        html += `<div class="hour">
+          <div class="h-time">${fmtClock(new Date(m.t * 1000))}</div>
+          <div class="h-src yr"><span class="lbl">yr.no</span>${hourCell(m)}</div>
+          <div class="h-src smhi"><span class="lbl">SMHI</span>${hourCell(s)}</div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+    $("liveReport").innerHTML = html;
+    status.textContent = "";
+  } catch (err) {
+    status.innerHTML = `<span class="error">Kunde inte hämta prognos: ${err.message}</span>`;
+  } finally {
+    btn.disabled = false; btn.textContent = "🔄 Uppdatera position";
+  }
+}
+
+function hourCell(e){
+  if (!e || e.temp == null) return `<span class="na">–</span>`;
+  const ws = e.ws != null ? Math.round(e.ws) : null;
+  const windStr = ws != null ? `${compass(e.wd)} ${ws} m/s` : "";
+  const p = PRECIP[e.cat] || PRECIP.unknown;
+  return `<b>${Math.round(e.temp)}°</b> · ${windStr} · ${p.icon}`;
 }
 </script>
 </body>
