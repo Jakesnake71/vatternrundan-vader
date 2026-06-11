@@ -110,7 +110,49 @@
   .error { color: var(--headwind); }
   footer { color: var(--muted); font-size: .78rem; margin-top: 22px; text-align: center; }
   footer a { color: var(--accent); }
-  @media (max-width: 560px) { form { grid-template-columns: 1fr 1fr; } }
+  /* --- Mobil: tabell -> kort per depå --- */
+  @media (max-width: 760px) {
+    .wrap { padding: 20px 12px 56px; }
+    form { grid-template-columns: 1fr 1fr; gap: 12px; }
+    form .field:last-child { grid-column: 1 / -1; }
+    .bulk { font-size: .82rem; }
+
+    table { min-width: 0; width: 100%; }
+    thead { display: none; }
+    tbody, tbody tr, tbody td { display: block; width: 100%; }
+    tbody tr {
+      border: 1px solid var(--line); border-radius: 14px;
+      margin: 0 0 14px; padding: 4px 0 8px; background: var(--bg-2);
+    }
+    tbody tr.finish { background: rgba(56,211,159,.10); border-color: rgba(56,211,159,.4); }
+    tbody td {
+      display: flex; justify-content: space-between; align-items: center; gap: 14px;
+      padding: 9px 16px; border: 0; border-bottom: 1px solid rgba(42,58,92,.5); text-align: right;
+    }
+    tbody td:last-child { border-bottom: 0; }
+    tbody td::before {
+      content: attr(data-label); color: var(--muted); font-size: .74rem;
+      text-transform: uppercase; letter-spacing: .03em; text-align: left;
+      flex: 1 1 auto; font-weight: 600;
+    }
+    /* Depå-namnet som kortrubrik, utan etikett */
+    tbody td.cell-depo {
+      display: flex; justify-content: space-between; align-items: baseline; text-align: left;
+      padding: 13px 16px 11px; background: rgba(78,163,255,.07);
+      border-bottom: 1px solid var(--line); border-radius: 14px 14px 0 0;
+    }
+    tbody td.cell-depo::before { content: none; }
+    tbody td.cell-depo .depo { font-size: 1.05rem; }
+    tbody tr.finish td.cell-depo { background: rgba(56,211,159,.12); }
+    .time { font-size: 1.05rem; }
+    .stop-input { width: 70px; }
+    .tag { margin-top: 0; }
+    /* Källgrupperna får en tydlig avdelare och färgkant */
+    tbody td.first-yr { border-top: 1px solid var(--line); margin-top: 2px; border-left: 3px solid var(--yr); }
+    tbody td.first-smhi { border-top: 1px solid var(--line); margin-top: 2px; border-left: 3px solid var(--smhi); }
+    tbody td.first-yr::before, tbody td.first-smhi::before { font-weight: 700; }
+  }
+  @media (max-width: 400px) { form { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -304,9 +346,11 @@ function pick(series, epochSec){
   return bd <= 3 * 3600 ? best : null;
 }
 
-function sourceCells(entry, bearing, firstClass){
+function sourceCells(entry, firstClass, src){
   if (!entry || entry.temp == null) {
-    return `<td class="${firstClass} na">–</td><td class="na">–</td><td class="na">–</td>`;
+    return `<td class="${firstClass} na" data-label="${src} · temp">–</td>`
+         + `<td class="na" data-label="${src} · vind">–</td>`
+         + `<td class="na" data-label="${src} · nederbörd">–</td>`;
   }
   const temp = Math.round(entry.temp);
   const ws = entry.ws != null ? Math.round(entry.ws) : null;
@@ -314,9 +358,9 @@ function sourceCells(entry, bearing, firstClass){
   const windStr = ws != null
     ? `${compass(entry.wd)} ${ws}${(wg && wg >= ws + 3) ? "–" + wg : ""} m/s`
     : "–";
-  return `<td class="${firstClass} temp">${temp}°</td>`
-       + `<td class="wind">${windStr}</td>`
-       + `<td class="precip">${precipCell(entry.cat, entry.mm)}</td>`;
+  return `<td class="${firstClass} temp" data-label="${src} · temp">${temp}°</td>`
+       + `<td class="wind" data-label="${src} · vind">${windStr}</td>`
+       + `<td class="precip" data-label="${src} · nederbörd">${precipCell(entry.cat, entry.mm)}</td>`;
 }
 
 function render(){
@@ -352,13 +396,13 @@ function render(){
       : `<span class="na">–</span>`;
 
     html += `<tr class="${isFinish ? "finish" : ""}">
-      <td><div class="depo">${d.name}</div><div class="dist">${d.km} km</div></td>
-      <td>${stopCell}</td>
-      <td class="time">${fmtClock(arr)}</td>
-      <td>${travelArrow(d.bearing)} ${d.side}</td>
-      <td>${relCell}</td>
-      ${sourceCells(met, d.bearing, "first-yr")}
-      ${sourceCells(smhi, d.bearing, "first-smhi")}
+      <td class="cell-depo"><div class="depo">${d.name}</div><div class="dist">${d.km} km</div></td>
+      <td data-label="Stopp (min)">${stopCell}</td>
+      <td class="time" data-label="Ankomst">${fmtClock(arr)}</td>
+      <td data-label="Riktning du cyklar">${travelArrow(d.bearing)} ${d.side}</td>
+      <td data-label="Med/motvind">${relCell}</td>
+      ${sourceCells(met, "first-yr", "yr.no")}
+      ${sourceCells(smhi, "first-smhi", "SMHI")}
     </tr>`;
   });
   rows.innerHTML = html;
