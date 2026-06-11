@@ -222,12 +222,11 @@
     </div>
     <div class="field">
       <label for="time">Starttid</label>
-      <input type="time" id="time" value="04:00" required />
+      <input type="time" id="time" value="04:52" required />
     </div>
     <div class="field">
       <label for="speed">Snittfart (km/h)</label>
       <input type="number" id="speed" value="25" min="10" max="45" step="0.5" required />
-      <div class="hint">Ren cykeltid, exkl. stopp</div>
     </div>
     <div class="field">
       <button type="submit" id="go">Hämta prognos</button>
@@ -236,10 +235,10 @@
 
   <div class="bulk">
     <span>Stopptid per depå:</span>
-    <input type="number" id="bulkStop" value="5" min="0" max="60" step="1" />
+    <input type="number" id="bulkStop" value="0" min="0" max="60" step="1" />
     <span>min</span>
     <button type="button" class="ghost" id="applyAll">Sätt på alla depåer</button>
-    <span class="hint" style="margin:0">– eller ändra per depå i tabellen. Tiderna räknas om direkt.</span>
+    <span class="hint" style="margin:0">– eller ändra per depå i tabellen.</span>
   </div>
 
   <div id="summary" class="summary"></div>
@@ -345,12 +344,9 @@ const $ = (id) => document.getElementById(id);
 const rows = $("rows");
 
 let WEATHER = null;          // svar från backend: [{met:[...], smhi:[...]}] per depå
-const stops = DEPOTS.map(d => d.stoppable ? 5 : 0); // stopptid (min) per depå
+const stops = DEPOTS.map(() => 0); // stopptid (min) per depå
 
-(function initDate(){
-  const now = new Date();
-  $("date").value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
-})();
+$("date").value = "2026-06-13";
 
 // Hämta väder (en gång) och rendera.
 $("form").addEventListener("submit", async (e) => {
