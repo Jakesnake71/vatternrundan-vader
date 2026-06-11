@@ -1,0 +1,17 @@
+name: keep-alive
+
+# Pingar Render-tjänsten var 10:e minut så att gratis-instansen inte somnar
+# (free-tier somnar efter ~15 min inaktivitet och tar 30–60 s att vakna).
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /api/health
+        run: |
+          echo "Pingar $(date -u)"
+          curl -fsS --max-time 60 https://vadervatternrundan.onrender.com/api/health
